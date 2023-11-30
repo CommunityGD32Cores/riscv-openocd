@@ -14,6 +14,7 @@
 #include "helper/fileio.h"
 #include "helper/time_support.h"
 #include "riscv.h"
+#include "rtos/rtos.h"
 #include "debug_defines.h"
 
 #define get_field(reg, mask) (((reg) & (mask)) / ((mask) & ~((mask) << 1)))
@@ -38,15 +39,16 @@
 #define ETRACE_WRAP			(0x3c)
 #define ETRACE_COMPACT 		(0x40)
 
-static uint32_t etrace_addr;
-static target_addr_t buffer_addr;
-static uint32_t buffer_size;
+static uint32_t atb2axi_config_addr = 0;
+static target_addr_t buffer_addr = 0;
+static uint32_t buffer_size = 0;
+static uint8_t etrace_start = 0;
 
 static int etrace_read_reg(struct target *target, uint32_t offset, uint32_t *value)
 {
-	int result = target_read_u32(target, etrace_addr + offset, value);
+	int result = target_read_u32(target, atb2axi_config_addr + offset, value);
 	if (result != ERROR_OK) {
-		LOG_ERROR("etrace_read_reg() error at %#x", etrace_addr + offset);
+		LOG_ERROR("etrace_read_reg() error at %#x", atb2axi_config_addr + offset);
 		return result;
 	}
 	return ERROR_OK;
@@ -54,9 +56,9 @@ static int etrace_read_reg(struct target *target, uint32_t offset, uint32_t *val
 
 static int etrace_write_reg(struct target *target, uint32_t offset, uint32_t value)
 {
-	int result = target_write_u32(target, etrace_addr + offset, value);
+	int result = target_write_u32(target, atb2axi_config_addr + offset, value);
 	if (result != ERROR_OK) {
-		LOG_ERROR("etrace_write_reg() error writing %#x to %#x", value, etrace_addr + offset);
+		LOG_ERROR("etrace_write_reg() error writing %#x to %#x", value, atb2axi_config_addr + offset);
 		return result;
 	}
 	return ERROR_OK;
@@ -84,9 +86,14 @@ COMMAND_HANDLER(handle_etrace_config_command)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
+	if (etrace_start) {
+		LOG_ERROR("config must come before start");
+		return 0;
+	}
+
 	struct target *target = get_current_target(CMD_CTX);
 
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], etrace_addr);
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], atb2axi_config_addr);
 	COMMAND_PARSE_NUMBER(target_addr, CMD_ARGV[1], buffer_addr);
 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], buffer_size);
 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[3], wrap);
@@ -112,21 +119,27 @@ COMMAND_HANDLER(handle_etrace_enable_command)
 	}
 
 	struct target *target = get_current_target(CMD_CTX);
+	struct target *target_real;
+	if (target->smp) {
+		target_real = get_target_by_num(target->current_targetid);
+	} else {
+		target_real = target;
+	}
 
 	riscv_reg_t dpc_rb;
-	riscv_reg_t tdata1 = 	field_value(CSR_MCONTROL_TYPE(riscv_xlen(target)), CSR_TDATA1_TYPE_MCONTROL) |
+	riscv_reg_t tdata1 = 	field_value(CSR_MCONTROL_TYPE(riscv_xlen(target_real)), CSR_TDATA1_TYPE_MCONTROL) |
 							field_value(CSR_MCONTROL_ACTION, CSR_MCONTROL_ACTION_TRACE_ON) |
 							field_value(CSR_MCONTROL_M, 1) |
 							field_value(CSR_MCONTROL_S, 1) |
 							field_value(CSR_MCONTROL_U, 1) |
 							field_value(CSR_MCONTROL_EXECUTE, 1);
-	if (riscv_set_register(target, GDB_REGNO_TSELECT, 0) != ERROR_OK)
+	if (riscv_set_register(target_real, GDB_REGNO_TSELECT, 0) != ERROR_OK)
 		return ERROR_FAIL;
-	if (riscv_set_register(target, GDB_REGNO_TDATA1, tdata1) != ERROR_OK)
+	if (riscv_set_register(target_real, GDB_REGNO_TDATA1, tdata1) != ERROR_OK)
 		return ERROR_FAIL;
-	if (riscv_get_register(target, &dpc_rb, GDB_REGNO_DPC) != ERROR_OK)
+	if (riscv_get_register(target_real, &dpc_rb, GDB_REGNO_DPC) != ERROR_OK)
 		return ERROR_FAIL;
-	if (riscv_set_register(target, GDB_REGNO_TDATA2, dpc_rb) != ERROR_OK)
+	if (riscv_set_register(target_real, GDB_REGNO_TDATA2, dpc_rb) != ERROR_OK)
 		return ERROR_FAIL;
 
 	return ERROR_OK;
@@ -139,21 +152,27 @@ COMMAND_HANDLER(handle_etrace_disable_command)
 	}
 
 	struct target *target = get_current_target(CMD_CTX);
+	struct target *target_real;
+	if (target->smp) {
+		target_real = get_target_by_num(target->current_targetid);
+	} else {
+		target_real = target;
+	}
 
 	riscv_reg_t dpc_rb;
-	riscv_reg_t tdata1 = 	field_value(CSR_MCONTROL_TYPE(riscv_xlen(target)), CSR_TDATA1_TYPE_MCONTROL) |
+	riscv_reg_t tdata1 = 	field_value(CSR_MCONTROL_TYPE(riscv_xlen(target_real)), CSR_TDATA1_TYPE_MCONTROL) |
 							field_value(CSR_MCONTROL_ACTION, CSR_MCONTROL_ACTION_TRACE_OFF) |
 							field_value(CSR_MCONTROL_M, 1) |
 							field_value(CSR_MCONTROL_S, 1) |
 							field_value(CSR_MCONTROL_U, 1) |
 							field_value(CSR_MCONTROL_EXECUTE, 1);
-	if (riscv_set_register(target, GDB_REGNO_TSELECT, 1) != ERROR_OK)
+	if (riscv_set_register(target_real, GDB_REGNO_TSELECT, 1) != ERROR_OK)
 		return ERROR_FAIL;
-	if (riscv_set_register(target, GDB_REGNO_TDATA1, tdata1) != ERROR_OK)
+	if (riscv_set_register(target_real, GDB_REGNO_TDATA1, tdata1) != ERROR_OK)
 		return ERROR_FAIL;
-	if (riscv_get_register(target, &dpc_rb, GDB_REGNO_DPC) != ERROR_OK)
+	if (riscv_get_register(target_real, &dpc_rb, GDB_REGNO_DPC) != ERROR_OK)
 		return ERROR_FAIL;
-	if (riscv_set_register(target, GDB_REGNO_TDATA2, dpc_rb) != ERROR_OK)
+	if (riscv_set_register(target_real, GDB_REGNO_TDATA2, dpc_rb) != ERROR_OK)
 		return ERROR_FAIL;
 
 	return ERROR_OK;
@@ -168,6 +187,7 @@ COMMAND_HANDLER(handle_etrace_start_command)
 	struct target *target = get_current_target(CMD_CTX);
 
 	etrace_write_reg(target, ETRACE_ENA, 1);
+	etrace_start = 1;
 
 	return ERROR_OK;
 }
@@ -181,6 +201,7 @@ COMMAND_HANDLER(handle_etrace_stop_command)
 	struct target *target = get_current_target(CMD_CTX);
 
 	etrace_stop(target);
+	etrace_start = 0;
 
 	return ERROR_OK;
 }
@@ -198,6 +219,11 @@ COMMAND_HANDLER(handle_etrace_dump_command)
 
 	if (CMD_ARGC != 1) {
 		return ERROR_COMMAND_SYNTAX_ERROR;
+	}
+
+	if (etrace_start) {
+		LOG_ERROR("you must stop before dumping");
+		return 0;
 	}
 
 	struct target *target = get_current_target(CMD_CTX);
@@ -293,9 +319,9 @@ COMMAND_HANDLER(handle_etrace_info_command)
 	etrace_read_reg(target, ETRACE_ENDOFFSET, &end_offset);
 	etrace_read_reg(target, ETRACE_FLG, &full_flag);
 
-	command_print(CMD, "Etrace Base: %#x", etrace_addr);
-	command_print(CMD, "Buffer Addr: %#lx", buffer_addr);
-	command_print(CMD, "Buffer Size: %#x", buffer_size);
+	command_print(CMD, "ATB2AXI Addr: %#x", atb2axi_config_addr);
+	command_print(CMD, "Buffer  Addr: %#lx", buffer_addr);
+	command_print(CMD, "Buffer  Size: %#x", buffer_size);
 	command_print_sameline(CMD, "Buffer Status: ");
 	if (full_flag) {
 		command_print(CMD, "used 100%% from %#lx [wraped]", buffer_addr + end_offset);
@@ -312,7 +338,7 @@ static const struct command_registration etrace_command_handlers[] = {
 		.handler = handle_etrace_config_command,
 		.mode = COMMAND_EXEC,
 		.help = "Configuration etrace.",
-		.usage = "etrace-addr buffer-addr buffer-size wrap",
+		.usage = "atb2axi-config-addr buffer-addr buffer-size wrap",
 	},
 	{
 		.name = "enable",

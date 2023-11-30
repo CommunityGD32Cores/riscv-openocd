@@ -11343,13 +11343,13 @@ The following commands are for etrace.
 
 This command should be executed after the @command{init} command.
 
-@deffn {Command} {nuclei etrace config} etrace-addr buffer-addr buffer-size wrap
+@deffn {Command} {nuclei etrace config} atb2axi-config-addr buffer-addr buffer-size wrap
 Configure each parameter needed for etrace.
 Command options:
 @itemize @bullet
-@item @option{etrace-addr} The address of the etrace controller.
-@item @option{buffer-addr} The address of the buffer.
-@item @option{buffer-size} The byte size of the buffer.
+@item @option{atb2axi-config-addr} The address of the atb2axi controller.
+@item @option{buffer-addr} The base address of etrace buffer.
+@item @option{buffer-size} The bytes size of the etrace buffer.
 @item @option{wrap} [0|1] Whether trace data is automatically looped back for overwriting.
 @end itemize
 @end deffn
@@ -11436,19 +11436,19 @@ Here are some examples for custom:
 # Without the simulation parameter, the flash operation will have a
 # timeout, the value of which is automatically calculated according
 # to the size of the operation data volume.
-flash bank $FLASHNAME nuspi 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
+flash bank $FLASHNAME custom 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
 /home/admin/flashloader.bin
 
 # If the simulation parameter is present, the flash operation will no
 # longer time out. if the sectorsize parameter is not specified,
 # then sectorsize is 0x10000.
-flash bank $FLASHNAME nuspi 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
+flash bank $FLASHNAME custom 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
 /home/admin/flashloader.bin simulation
 
-flash bank $FLASHNAME nuspi 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
+flash bank $FLASHNAME custom 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
 /home/admin/flashloader.bin sectorsize=0x1000
 
-flash bank $FLASHNAME nuspi 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
+flash bank $FLASHNAME custom 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
 /home/admin/flashloader.bin simulation sectorsize=0x1000
 
 flash bank $FLASHNAME nuspi 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
