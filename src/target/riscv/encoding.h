@@ -3182,6 +3182,24 @@
 #define CSR_MTLBCFG_INFO 0xfc3
 #define CSR_MECC_CTRL 0xbc0
 #define CSR_MECC_STATUS 0xbc4
+#define CSR_MMACRO_DEV_EN 0xbc8
+#define CSR_MMACRO_NOC_EN 0xbc9
+#define CSR_MMACRO_CA_EN 0xbca
+#define CSR_IRQCIP 0xbd0
+#define CSR_IRQCIE 0xbd1
+#define CSR_IRQCLVL 0xbd2
+#define CSR_IRQCEDGE 0xbd3
+#define CSR_IRQCINFO 0xbd4
+#define CSR_MSIP 0xbd8
+#define CSR_MTIMECMP 0xbd9
+#define CSR_MTIME 0xbda
+#define CSR_MSTOP 0xbdb
+#define CSR_MATTRI5_BASE 0xbe0
+#define CSR_MATTRI5_MASK 0xbe1
+#define CSR_MATTRI6_BASE 0xbe2
+#define CSR_MATTRI6_MASK 0xbe3
+#define CSR_MATTRI7_BASE 0xbe4
+#define CSR_MATTRI7_MASK 0xbe5
 
 /* === P-Extension Registers === */
 #define CSR_UCODE 0x801
@@ -5004,6 +5022,24 @@ DECLARE_CSR(mcfg_info, CSR_MCFG_INFO)
 DECLARE_CSR(mtlbcfg_info, CSR_MTLBCFG_INFO)
 DECLARE_CSR(mecc_ctrl, CSR_MECC_CTRL)
 DECLARE_CSR(mecc_status, CSR_MECC_STATUS)
+DECLARE_CSR(mmacro_dev_en, CSR_MMACRO_DEV_EN)
+DECLARE_CSR(mmacro_noc_en, CSR_MMACRO_NOC_EN)
+DECLARE_CSR(mmacro_ca_en, CSR_MMACRO_CA_EN)
+DECLARE_CSR(irqcip, CSR_IRQCIP)
+DECLARE_CSR(irqcie, CSR_IRQCIE)
+DECLARE_CSR(irqclvl, CSR_IRQCLVL)
+DECLARE_CSR(irqcedge, CSR_IRQCEDGE)
+DECLARE_CSR(irqcinfo, CSR_IRQCINFO)
+DECLARE_CSR(msip, CSR_MSIP)
+DECLARE_CSR(mtimecmp, CSR_MTIMECMP)
+DECLARE_CSR(mtime, CSR_MTIME)
+DECLARE_CSR(mstop, CSR_MSTOP)
+DECLARE_CSR(mattri5_base, CSR_MATTRI5_BASE)
+DECLARE_CSR(mattri5_mask, CSR_MATTRI5_MASK)
+DECLARE_CSR(mattri6_base, CSR_MATTRI6_BASE)
+DECLARE_CSR(mattri6_mask, CSR_MATTRI6_MASK)
+DECLARE_CSR(mattri7_base, CSR_MATTRI7_BASE)
+DECLARE_CSR(mattri7_mask, CSR_MATTRI7_MASK)
 
 /* === P-Extension Registers === */
 DECLARE_CSR(ucode, CSR_UCODE)
