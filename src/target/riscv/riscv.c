@@ -3201,280 +3201,331 @@ COMMAND_HANDLER(handle_info)
 
 	return 0;
 }
-
 #define KB                        (1024)
 #define MB                        (KB * 1024)
 #define GB                        (MB * 1024)
 #define EXTENSION_NUM             (26)
 #define POWER_FOR_TWO(n)          (1 << (n))
-#define EXTRACT_FIELD(val, which) (((val) & (which)) / ((which) & ~((which)-1)))
-#define print_size(bytes) do {\
-    if (bytes / GB) {\
-        command_print_sameline(CMD, " %dGB", (int)(bytes / GB));\
-    } else if (bytes / MB) {\
-        command_print_sameline(CMD, " %dMB", (int)(bytes / MB));\
-    } else if (bytes / KB) {\
-        command_print_sameline(CMD, " %dKB", (int)(bytes / KB));\
-    } else {\
-        command_print_sameline(CMD, " %dByte", (int)(bytes));\
-    }\
-} while(0);
-#define show_cache_info(set, way, lsize) do {\
-    print_size((set) * (way) * (lsize));\
-    command_print_sameline(CMD, "(set=%d,", (int)(set));\
-    command_print_sameline(CMD, "way=%d,", (int)(way));\
-    command_print(CMD, "lsize=%d)", (int)(lsize));\
-} while(0);
+#define LINESZ(n)                 ((n) > 0 ? POWER_FOR_TWO((n) - 1) : 0)
+#define EXTRACT_FIELD(val, which) (((val) & (which)) / ((which) & ~((which) - 1)))
+
+#define show_safety_mechanism(safetyMode) do {\
+	switch (safetyMode) {\
+		case 0b00: \
+			command_print_sameline(CMD, " No-Safety-Mechanism"); \
+			break; \
+		case 0b01: \
+			command_print_sameline(CMD, " Lockstep"); \
+			break; \
+		case 0b10: \
+			command_print_sameline(CMD, " Lockstep+SplitMode"); \
+			break; \
+		case 0b11: \
+			command_print_sameline(CMD, " ASIL-B"); \
+			break; \
+	} \
+} while (0)
+
+
+#define show_vpu_degree(degree) do { \
+	switch (degree) { \
+		case 0b00: \
+			command_print_sameline(CMD, " DLEN=VLEN/2"); \
+			break; \
+		case 0b01: \
+			command_print_sameline(CMD, " DLEN=VLEN"); \
+			break; \
+	} \
+} while (0)
+
+#define print_size(bytes) do { \
+	if ((bytes) / GB) { \
+		command_print_sameline(CMD, " %d GB", (int)((bytes) / GB)); \
+	} else if ((bytes) / MB) { \
+		command_print_sameline(CMD, " %d MB", (int)((bytes) / MB)); \
+	} else if ((bytes) / KB) { \
+		command_print_sameline(CMD, " %d KB", (int)((bytes) / KB)); \
+	} else { \
+		command_print_sameline(CMD, " %d Byte", (int)(bytes)); \
+	} \
+} while (0)
+
+#define show_cache_info(set, way, lsize, ecc) do { \
+	print_size((set) * (way) * (lsize)); \
+	command_print_sameline(CMD, "(set=%d,", (int)(set)); \
+	command_print_sameline(CMD, "way=%d,", (int)(way)); \
+	command_print_sameline(CMD, "lsize=%d,", (int)(lsize)); \
+	command_print(CMD, "ecc=%d)", !!(ecc)); \
+} while (0)
 
 COMMAND_HANDLER(handle_nuclei_cpuinfo)
 {
-    riscv_reg_t csr_mcfg = 0;
-    riscv_reg_t csr_micfg = 0;
-    riscv_reg_t csr_mdcfg = 0;
-    riscv_reg_t iregion_base = 0;
-    riscv_reg_t csr_marchid = 0;
-    riscv_reg_t csr_mimpid = 0;
-    riscv_reg_t csr_misa = 0;
-    riscv_reg_t csr_mirgb = 0;
-    riscv_reg_t csr_mfiocfg = 0;
-    riscv_reg_t csr_mppicfg = 0;
-    riscv_reg_t csr_mtlbcfg = 0;
+	riscv_reg_t csr_mcfg = 0;
+	riscv_reg_t csr_micfg = 0;
+	riscv_reg_t csr_mdcfg = 0;
+	riscv_reg_t iregion_base = 0;
+	riscv_reg_t csr_marchid = 0;
+	riscv_reg_t csr_mimpid = 0;
+	riscv_reg_t csr_misa = 0;
+	riscv_reg_t csr_mirgb = 0;
+	riscv_reg_t csr_mfiocfg = 0;
+	riscv_reg_t csr_mppicfg = 0;
+	riscv_reg_t csr_mtlbcfg = 0;
 
-    struct target *target = get_current_target(CMD_CTX);
+	struct target *target = get_current_target(CMD_CTX);
 
-    command_print(CMD, "----Supported configuration information");
+	command_print(CMD, "-----Nuclei RISC-V CPU Configuration Information-----");
 
-    /* ID and version */
-    riscv_get_register(target, &csr_marchid, CSR_MARCHID + GDB_REGNO_CSR0);
-    riscv_get_register(target, &csr_mimpid, CSR_MIMPID + GDB_REGNO_CSR0);
-    command_print(CMD, "         MARCHID: %lx", csr_marchid);
-    command_print(CMD, "          MIMPID: %lx", csr_mimpid);
+	/* ID and version */
+	if (riscv_get_register(target, &csr_marchid, CSR_MARCHID + GDB_REGNO_CSR0) == ERROR_OK)
+		command_print(CMD, "         MARCHID: %lx", csr_marchid);
+	if (riscv_get_register(target, &csr_mimpid, CSR_MIMPID + GDB_REGNO_CSR0) == ERROR_OK)
+		command_print(CMD, "          MIMPID: %lx", csr_mimpid);
 
-    /* ISA */
-    riscv_get_register(target, &csr_misa, CSR_MISA + GDB_REGNO_CSR0);
-    command_print_sameline(CMD, "             ISA:");
-    if (32 == riscv_xlen(target)) {
-        command_print_sameline(CMD, " RV32");
-    } else {
-        command_print_sameline(CMD, " RV64");
-    }
-    for (int i = 0; i < EXTENSION_NUM; i++) {
-        if (csr_misa & BIT(i)) {
-            if ('X' == ('A' + i)) {
-                command_print_sameline(CMD, " Zc XLCZ");
-            } else {
-                command_print_sameline(CMD, " %c", 'A' + i);
-            }
-        }
-    }
-    command_print(CMD, " ");
+	/* ISA */
+	if (riscv_get_register(target, &csr_misa, CSR_MISA + GDB_REGNO_CSR0) == ERROR_OK) {
+		command_print_sameline(CMD, "             ISA:");
+		if (32 == riscv_xlen(target))
+			command_print_sameline(CMD, " RV32");
+		else
+			command_print_sameline(CMD, " RV64");
+		for (int i = 0; i < EXTENSION_NUM; i++) {
+			if (csr_misa & BIT(i)) {
+				if ('X' == ('A' + i))
+					command_print_sameline(CMD, " NICE");
+				else
+					command_print_sameline(CMD, " %c", 'A' + i);
+			}
+		}
+		if (riscv_get_register(target, &csr_mcfg, CSR_MCFG_INFO + GDB_REGNO_CSR0) == ERROR_OK) {
+			if (csr_mcfg & BIT(12))
+				command_print_sameline(CMD, " Xxldspn1x");
+			if (csr_mcfg & BIT(13))
+				command_print_sameline(CMD, " Xxldspn2x");
+			if (csr_mcfg & BIT(14))
+				command_print_sameline(CMD, " Xxldspn3x");
+			if (csr_mcfg & BIT(15))
+				command_print_sameline(CMD, " Zc Xxlcz");
+			if (csr_mcfg & BIT(19))
+				command_print_sameline(CMD, " Smwg");
+		}
+		command_print(CMD, " ");
+	}
 
-    /* Support */
-    riscv_get_register(target, &csr_mcfg, CSR_MCFG_INFO + GDB_REGNO_CSR0);
-    command_print_sameline(CMD, "            MCFG:");
-    if (csr_mcfg & BIT(0)) {
-        command_print_sameline(CMD, " TEE");
-    }
-    if (csr_mcfg & BIT(1)) {
-        command_print_sameline(CMD, " ECC");
-    }
-    if (csr_mcfg & BIT(2)) {
-        command_print_sameline(CMD, " ECLIC");
-    }
-    if (csr_mcfg & BIT(3)) {
-        command_print_sameline(CMD, " PLIC");
-    }
-    if (csr_mcfg & BIT(4)) {
-        command_print_sameline(CMD, " FIO");
-    }
-    if (csr_mcfg & BIT(5)) {
-        command_print_sameline(CMD, " PPI");
-    }
-    if (csr_mcfg & BIT(6)) {
-        command_print_sameline(CMD, " NICE");
-    }
-    if (csr_mcfg & BIT(7)) {
-        command_print_sameline(CMD, " ILM");
-    }
-    if (csr_mcfg & BIT(8)) {
-        command_print_sameline(CMD, " DLM");
-    }
-    if (csr_mcfg & BIT(9)) {
-        command_print_sameline(CMD, " ICACHE");
-    }
-    if (csr_mcfg & BIT(10)) {
-        command_print_sameline(CMD, " DCACHE");
-    }
-    if (csr_mcfg & BIT(11)) {
-        command_print_sameline(CMD, " SMP");
-    }
-    if (csr_mcfg & BIT(12)) {
-        command_print_sameline(CMD, " DSP-N1");
-    }
-    if (csr_mcfg & BIT(13)) {
-        command_print_sameline(CMD, " DSP-N2");
-    }
-    if (csr_mcfg & BIT(14)) {
-        command_print_sameline(CMD, " DSP-N3");
-    }
-    if (csr_mcfg & BIT(16)) {
-        command_print_sameline(CMD, " IREGION");
-    }
-	if (csr_mcfg & BIT(20)) {
-        command_print_sameline(CMD, " ETRACE");
-    }
-    command_print(CMD, " ");
+	/* Support */
+	if (riscv_get_register(target, &csr_mcfg, CSR_MCFG_INFO + GDB_REGNO_CSR0) == ERROR_OK) {
+		command_print_sameline(CMD, "            MCFG:");
+		if (csr_mcfg & BIT(0))
+			command_print_sameline(CMD, " TEE");
+		if (csr_mcfg & BIT(1))
+			command_print_sameline(CMD, " ECC");
+		if (csr_mcfg & BIT(2))
+			command_print_sameline(CMD, " ECLIC");
+		if (csr_mcfg & BIT(3))
+			command_print_sameline(CMD, " PLIC");
+		if (csr_mcfg & BIT(4))
+			command_print_sameline(CMD, " FIO");
+		if (csr_mcfg & BIT(5))
+			command_print_sameline(CMD, " PPI");
+		if (csr_mcfg & BIT(6))
+			command_print_sameline(CMD, " NICE");
+		if (csr_mcfg & BIT(7))
+			command_print_sameline(CMD, " ILM");
+		if (csr_mcfg & BIT(8))
+			command_print_sameline(CMD, " DLM");
+		if (csr_mcfg & BIT(9))
+			command_print_sameline(CMD, " ICACHE");
+		if (csr_mcfg & BIT(10))
+			command_print_sameline(CMD, " DCACHE");
+		if (csr_mcfg & BIT(11))
+			command_print_sameline(CMD, " SMP");
+		if (csr_mcfg & BIT(12))
+			command_print_sameline(CMD, " DSP_N1");
+		if (csr_mcfg & BIT(13))
+			command_print_sameline(CMD, " DSP_N2");
+		if (csr_mcfg & BIT(14))
+			command_print_sameline(CMD, " DSP_N3");
+		if (csr_mcfg & BIT(15))
+			command_print_sameline(CMD, " ZC_XLCZ_EXT");
+		if (csr_mcfg & BIT(16))
+			command_print_sameline(CMD, " IREGION");
+		if (csr_mcfg & BIT(19))
+			command_print_sameline(CMD, " SEC_MODE");
+		if (csr_mcfg & BIT(20))
+			command_print_sameline(CMD, " ETRACE");
+		if (csr_mcfg & BIT(23))
+			command_print_sameline(CMD, " VNICE");
+		show_safety_mechanism(EXTRACT_FIELD(csr_mcfg, 0x3 << 21));
+		show_vpu_degree(EXTRACT_FIELD(csr_mcfg, 0x3 << 17));
+		command_print(CMD, " ");
+	}
 
-    /* ILM */
-    if (csr_mcfg & BIT(7)) {
-        riscv_get_register(target, &csr_micfg, CSR_MICFG_INFO + GDB_REGNO_CSR0);
-        command_print_sameline(CMD, "             ILM:");
-        print_size(POWER_FOR_TWO(EXTRACT_FIELD(csr_micfg, 0x1F << 16) - 1) * 256);
-        if (csr_micfg & BIT(21)) {
-            command_print_sameline(CMD, " execute-only");
-        }
-        if (csr_micfg & BIT(22)) {
-            command_print_sameline(CMD, " has-ecc");
-        }
-        command_print(CMD, " ");
-    }
+	/* ILM */
+	if (csr_mcfg & BIT(7)) {
+		if (riscv_get_register(target, &csr_micfg, CSR_MICFG_INFO + GDB_REGNO_CSR0) == ERROR_OK) {
+			command_print_sameline(CMD, "             ILM:");
+			print_size(POWER_FOR_TWO(EXTRACT_FIELD(csr_micfg, 0x1F << 16) - 1) * 256);
+			if (csr_micfg & BIT(21))
+				command_print_sameline(CMD, " execute-only");
+			if (csr_micfg & BIT(22))
+				command_print_sameline(CMD, " has-ecc");
+			command_print(CMD, " ");
+		}
+	}
 
-    /* DLM */
-    if (csr_mcfg & BIT(8)) {
-        riscv_get_register(target, &csr_mdcfg, CSR_MDCFG_INFO + GDB_REGNO_CSR0);
-        command_print_sameline(CMD, "             DLM:");
-        print_size(POWER_FOR_TWO(EXTRACT_FIELD(csr_mdcfg, 0x1F << 16) - 1) * 256);
-        if (csr_mdcfg & BIT(21)) {
-            command_print_sameline(CMD, " has-ecc");
-        }
-        command_print(CMD, " ");
-    }
+	/* DLM */
+	if (csr_mcfg & BIT(8)) {
+		if (riscv_get_register(target, &csr_mdcfg, CSR_MDCFG_INFO + GDB_REGNO_CSR0) == ERROR_OK) {
+			command_print_sameline(CMD, "             DLM:");
+			print_size(POWER_FOR_TWO(EXTRACT_FIELD(csr_mdcfg, 0x1F << 16) - 1) * 256);
+			if (csr_mdcfg & BIT(21))
+				command_print_sameline(CMD, " has-ecc");
+			command_print(CMD, " ");
+		}
+	}
 
-    /* ICACHE */
-    if (csr_mcfg & BIT(9)) {
-        riscv_get_register(target, &csr_micfg, CSR_MICFG_INFO + GDB_REGNO_CSR0);
-        command_print_sameline(CMD, "          ICACHE:");
-        show_cache_info(POWER_FOR_TWO(EXTRACT_FIELD(csr_micfg, 0xF) +3), 
-                        EXTRACT_FIELD(csr_micfg, 0x7 << 4) + 1, 
-                        POWER_FOR_TWO(EXTRACT_FIELD(csr_micfg, 0x7 << 7) + 2));
-    }
+	/* ICACHE */
+	if (csr_mcfg & BIT(9)) {
+		if (riscv_get_register(target, &csr_micfg, CSR_MICFG_INFO + GDB_REGNO_CSR0) == ERROR_OK) {
+			command_print_sameline(CMD, "          ICACHE:");
+			show_cache_info(POWER_FOR_TWO(EXTRACT_FIELD(csr_micfg, 0xF) + 3),
+							EXTRACT_FIELD(csr_micfg, 0x7 << 4) + 1,
+							POWER_FOR_TWO(EXTRACT_FIELD(csr_micfg, 0x7 << 7) + 2),
+							csr_mcfg & BIT(1));
+		}
+	}
 
-    /* DCACHE */
-    if (csr_mcfg & BIT(10)) {
-        riscv_get_register(target, &csr_mdcfg, CSR_MDCFG_INFO + GDB_REGNO_CSR0);
-        command_print_sameline(CMD, "          DCACHE:");
-        show_cache_info(POWER_FOR_TWO(EXTRACT_FIELD(csr_mdcfg, 0xF) +3), 
-                        EXTRACT_FIELD(csr_mdcfg, 0x7 << 4) + 1, 
-                        POWER_FOR_TWO(EXTRACT_FIELD(csr_mdcfg, 0x7 << 7) + 2));
-    }
+	/* DCACHE */
+	if (csr_mcfg & BIT(10)) {
+		if (riscv_get_register(target, &csr_mdcfg, CSR_MDCFG_INFO + GDB_REGNO_CSR0) == ERROR_OK) {
+			command_print_sameline(CMD, "          DCACHE:");
+			show_cache_info(POWER_FOR_TWO(EXTRACT_FIELD(csr_mdcfg, 0xF) + 3),
+							EXTRACT_FIELD(csr_mdcfg, 0x7 << 4) + 1,
+							POWER_FOR_TWO(EXTRACT_FIELD(csr_mdcfg, 0x7 << 7) + 2),
+							csr_mcfg & BIT(1));
+		}
+	}
 
-    /* IREGION */
-    if (csr_mcfg & BIT(16)) {
-        riscv_get_register(target, &csr_mirgb, CSR_MIRGB_INFO + GDB_REGNO_CSR0);
-        command_print_sameline(CMD, "         IREGION:");
-        iregion_base = csr_mirgb & (~0x3FF);
-        command_print_sameline(CMD, " %#lx", iregion_base);
-        print_size(POWER_FOR_TWO(EXTRACT_FIELD(csr_mirgb, 0xF << 1) - 1) * KB);
-        command_print(CMD, " ");
-        command_print(CMD, "                  Unit        Size        Address");
-        command_print(CMD, "                  INFO        64KB        %#lx", iregion_base);
-        command_print(CMD, "                  DEBUG       64KB        %#lx", iregion_base + 0x10000);
-        if (csr_mcfg & BIT(2)) {
-            command_print(CMD, "                  ECLIC       64KB        %#lx", iregion_base + 0x20000);
-        }
-        command_print(CMD, "                  TIMER       64KB        %#lx", iregion_base + 0x30000);
-        if (csr_mcfg & BIT(11)) {
-            command_print(CMD, "                  SMP&CC      64KB        %#lx", iregion_base + 0x40000);
-        }
-        riscv_reg_t smp_cfg = 0;
-        riscv_read_memory(target, iregion_base + 0x40004, 4, 1, (uint8_t*)&smp_cfg);
-        if ((csr_mcfg & BIT(2)) && (EXTRACT_FIELD(smp_cfg, 0x1F << 1) >= 2)) {
-            command_print(CMD, "                  CIDU        64KB        %#lx", iregion_base + 0x50000);
-        }
-        if (csr_mcfg & BIT(3)) {
-            command_print(CMD, "                  PLIC        64MB        %#lx", iregion_base + 0x4000000);
-        }
-        /* SMP */
-        if (csr_mcfg & BIT(11)) {
-            command_print_sameline(CMD, "         SMP_CFG:");
-            command_print_sameline(CMD, " CC_PRESENT=%ld", EXTRACT_FIELD(smp_cfg, 0x1));
-            command_print_sameline(CMD, " SMP_CORE_NUM=%ld", EXTRACT_FIELD(smp_cfg, 0x1F << 1));
-            command_print_sameline(CMD, " IOCP_NUM=%ld", EXTRACT_FIELD(smp_cfg, 0x3F << 7));
-            command_print(CMD, " PMON_NUM=%ld", EXTRACT_FIELD(smp_cfg, 0x3F << 13));
-        }
-        /* L2CACHE */
-        if (smp_cfg & 0x1) {
-            command_print_sameline(CMD, "         L2CACHE:");
-            riscv_reg_t cc_cfg = 0;
-            riscv_read_memory(target, iregion_base + 0x40008, 4, 1, (uint8_t*)&cc_cfg);
-            show_cache_info(POWER_FOR_TWO(EXTRACT_FIELD(smp_cfg, 0xF)), EXTRACT_FIELD(smp_cfg, 0x7 << 4) + 1, 
-                            POWER_FOR_TWO(EXTRACT_FIELD(smp_cfg, 0x7 << 7) + 2));
-        }
-        /* INFO */
-        command_print(CMD, "     INFO-Detail:");
-        riscv_reg_t mpasize = 0;
-        riscv_read_memory(target, iregion_base, 4, 1, (uint8_t*)&mpasize);
-        command_print(CMD, "                  mpasize : %ld", mpasize);
-        riscv_reg_t cmo_info = 0;
-        riscv_read_memory(target, iregion_base + 4, 4, 1, (uint8_t*)&cmo_info);
-        if (cmo_info & 0x1) {
-            command_print(CMD, "                  cbozero : %dByte", POWER_FOR_TWO(EXTRACT_FIELD(cmo_info, 0xF << 6) + 2));
-            command_print(CMD, "                  cmo     : %dByte", POWER_FOR_TWO(EXTRACT_FIELD(cmo_info, 0xF << 2) + 2));
-            if (cmo_info & 0x2) {
-                command_print(CMD, "                  has_prefecth");
-            }
-        }
-        riscv_reg_t mcppi_cfg_lo = 0;
-        riscv_read_memory(target, iregion_base + 0x80, 4, 1, (uint8_t*)&mcppi_cfg_lo);
-        riscv_reg_t mcppi_cfg_hi = 0;
-        riscv_read_memory(target, iregion_base + 0x84, 4, 1, (uint8_t*)&mcppi_cfg_hi);
-        if (mcppi_cfg_lo & 0x1) {
-            if (32 == riscv_xlen(target)) {
-                command_print_sameline(CMD, "                  cppi    : %#lx", mcppi_cfg_lo & (~0x3FF));
-            } else {
-                command_print_sameline(CMD, "                  cppi    : %#lx", (mcppi_cfg_hi << 32) | (mcppi_cfg_lo & (~0x3FF)));
-            }
-            print_size(POWER_FOR_TWO(EXTRACT_FIELD(mcppi_cfg_lo, 0xF << 1) - 1) * KB);
-            command_print(CMD, " ");
-        }
-    }
+	/* TLB only present with MMU, when PLIC present MMU will present */
+	if (csr_mcfg & BIT(3)) {
+		if (riscv_get_register(target, &csr_mtlbcfg, CSR_MTLBCFG_INFO + GDB_REGNO_CSR0) == ERROR_OK) {
+			command_print_sameline(CMD, "             TLB:");
+			command_print(CMD, " MainTLB(set=%lu way=%lu entry=%lu ecc=%lu) ITLB(entry=%lu) DTLB(entry=%lu)",
+						POWER_FOR_TWO(EXTRACT_FIELD(csr_mtlbcfg, 0xF) + 3),
+						EXTRACT_FIELD(csr_mtlbcfg, 0x7 << 4) + 1,
+						LINESZ(EXTRACT_FIELD(csr_mtlbcfg, 0x7 << 7)),
+						EXTRACT_FIELD(csr_mtlbcfg, 0x1 << 10),
+						LINESZ(EXTRACT_FIELD(csr_mtlbcfg, 0x7 << 16)),
+						LINESZ(EXTRACT_FIELD(csr_mtlbcfg, 0x7 << 19)));
+		}
+	}
 
-    /* TLB */
-    if (csr_mcfg & BIT(3)) {
-        if (riscv_get_register(target, &csr_mtlbcfg, CSR_MTLBCFG_INFO + GDB_REGNO_CSR0) == ERROR_OK) {
-            command_print(CMD, "            DTLB: %ld entry", EXTRACT_FIELD(csr_mtlbcfg, 0x7 << 19));
-            command_print(CMD, "            ITLB: %ld entry", EXTRACT_FIELD(csr_mtlbcfg, 0x7 << 16));
-            command_print_sameline(CMD, "            MTLB:");
-            command_print_sameline(CMD, " %ld entry", POWER_FOR_TWO(EXTRACT_FIELD(csr_mtlbcfg, 0xF) + 3) * 
-                                                      (EXTRACT_FIELD(csr_mtlbcfg, 0x7 << 4) + 1) * 
-                                                      (EXTRACT_FIELD(csr_mtlbcfg, 0x7 << 7) - 1));
-            if (csr_mtlbcfg & BIT(10)) {
-                command_print_sameline(CMD, " has_ecc");
-            }
-            command_print(CMD, " ");
-        }
-    }
+	/* IREGION */
+	if (csr_mcfg & BIT(16)) {
+		if (riscv_get_register(target, &csr_mirgb, CSR_MIRGB_INFO + GDB_REGNO_CSR0) == ERROR_OK) {
+			command_print_sameline(CMD, "         IREGION:");
+			iregion_base = csr_mirgb & (~0x3FF);
+			command_print_sameline(CMD, " %#lx", iregion_base);
+			print_size(POWER_FOR_TWO(EXTRACT_FIELD(csr_mirgb, 0x1F << 1) - 1) * KB);
+			command_print(CMD, " ");
+			command_print(CMD, "                  Unit        Size        Address");
+			command_print(CMD, "                  INFO        64KB        %#lx", iregion_base);
+			command_print(CMD, "                  DEBUG       64KB        %#lx", iregion_base + 0x10000);
+			if (csr_mcfg & BIT(2))
+				command_print(CMD, "                  ECLIC       64KB        %#lx", iregion_base + 0x20000);
+			command_print(CMD, "                  TIMER       64KB        %#lx", iregion_base + 0x30000);
+			if (csr_mcfg & BIT(11))
+				command_print(CMD, "                  SMP&CC      64KB        %#lx", iregion_base + 0x40000);
+			riscv_reg_t smp_cfg = 0;
+			target_read_memory(target, iregion_base + 0x40004, 4, 1, (uint8_t *)&smp_cfg);
+			if ((csr_mcfg & BIT(2)) && (EXTRACT_FIELD(smp_cfg, 0x1F << 1) >= 2))
+				command_print(CMD, "                  CIDU        64KB        %#lx", iregion_base + 0x50000);
+			if (csr_mcfg & BIT(3))
+				command_print(CMD, "                  PLIC        64MB        %#lx", iregion_base + 0x4000000);
+			/* SMP */
+			if (csr_mcfg & BIT(11)) {
+				command_print_sameline(CMD, "         SMP_CFG:");
+				command_print_sameline(CMD, " CC_PRESENT=%ld", EXTRACT_FIELD(smp_cfg, 0x1));
+				command_print_sameline(CMD, " SMP_CORE_NUM=%ld", EXTRACT_FIELD(smp_cfg, 0x3F << 1));
+				command_print_sameline(CMD, " IOCP_NUM=%ld", EXTRACT_FIELD(smp_cfg, 0x3F << 7));
+				command_print(CMD, " PMON_NUM=%ld", EXTRACT_FIELD(smp_cfg, 0x3F << 13));
+			}
+			/* ECLIC */
+			if (csr_mcfg & BIT(2)) {
+				riscv_reg_t clic_cfg = 0;
+				target_read_memory(target, iregion_base + 0x20000, 4, 1, (uint8_t *)&clic_cfg);
+				riscv_reg_t clic_info = 0;
+				target_read_memory(target, iregion_base + 0x20004, 4, 1, (uint8_t *)&clic_info);
+				riscv_reg_t clic_mth = 0;
+				target_read_memory(target, iregion_base + 0x20008, 4, 1, (uint8_t *)&clic_mth);
+				command_print_sameline(CMD, "           ECLIC:");
+				command_print_sameline(CMD, " VERSION=0x%x", EXTRACT_FIELD(clic_info, 0xFF << 13));
+				command_print_sameline(CMD, " NUM_INTERRUPT=%x", EXTRACT_FIELD(clic_info, 0xFFF));
+				command_print_sameline(CMD, " CLICINTCTLBITS=%x", EXTRACT_FIELD(clic_info, 0xF << 21));
+				command_print_sameline(CMD, " MTH=%x", EXTRACT_FIELD(clic_mth, 0xFF << 24));
+				command_print(CMD, " NLBITS=%x", EXTRACT_FIELD(clic_cfg, 0xF << 1));
+			}
+			/* L2CACHE */
+			if (smp_cfg & 0x1) {
+				command_print_sameline(CMD, "         L2CACHE:");
+				riscv_reg_t cc_cfg = 0;
+				target_read_memory(target, iregion_base + 0x40008, 4, 1, (uint8_t *)&cc_cfg);
+				show_cache_info(POWER_FOR_TWO(EXTRACT_FIELD(cc_cfg, 0xF)), EXTRACT_FIELD(cc_cfg, 0xF << 4) + 1,
+								POWER_FOR_TWO(EXTRACT_FIELD(cc_cfg, 0x7 << 8) + 2), cc_cfg & BIT(11));
+			}
+			/* INFO */
+			command_print(CMD, "     INFO-Detail:");
+			riscv_reg_t mpasize = 0;
+			target_read_memory(target, iregion_base, 4, 1, (uint8_t *)&mpasize);
+			command_print(CMD, "                  mpasize : %ld", mpasize);
+			riscv_reg_t cmo_info = 0;
+			target_read_memory(target, iregion_base + 4, 4, 1, (uint8_t *)&cmo_info);
+			if (cmo_info & 0x1) {
+				command_print(CMD, "                  cbozero : %dByte",
+					POWER_FOR_TWO(EXTRACT_FIELD(cmo_info, 0xF << 6) + 2));
+				command_print(CMD, "                  cmo     : %dByte",
+					POWER_FOR_TWO(EXTRACT_FIELD(cmo_info, 0xF << 2) + 2));
+				if (cmo_info & 0x2)
+					command_print(CMD, "                  has_prefecth");
+			}
+			riscv_reg_t mcppi_cfg_lo = 0;
+			target_read_memory(target, iregion_base + 0x80, 4, 1, (uint8_t *)&mcppi_cfg_lo);
+			riscv_reg_t mcppi_cfg_hi = 0;
+			target_read_memory(target, iregion_base + 0x84, 4, 1, (uint8_t *)&mcppi_cfg_hi);
+			if (mcppi_cfg_lo & 0x1) {
+				if (32 == riscv_xlen(target))
+					command_print_sameline(CMD, "                  cppi    : %#lx", mcppi_cfg_lo & (~0x3FF));
+				else
+					command_print_sameline(CMD, "                  cppi    : %#lx",
+						(mcppi_cfg_hi << 32) | (mcppi_cfg_lo & (~0x3FF)));
+				print_size(POWER_FOR_TWO(EXTRACT_FIELD(mcppi_cfg_lo, 0x1F << 1) - 1) * KB);
+				command_print(CMD, " ");
+			}
+		}
+	}
 
-    /* FIO */
-    if (csr_mcfg & BIT(4)) {
-        riscv_get_register(target, &csr_mfiocfg, CSR_MFIOCFG_INFO + GDB_REGNO_CSR0);
-        command_print_sameline(CMD, "             FIO:");
-        command_print_sameline(CMD, " %#lx", csr_mfiocfg & (~0x3FF));
-        print_size(POWER_FOR_TWO(EXTRACT_FIELD(csr_mfiocfg, 0xF << 1) - 1) * KB);
-        command_print(CMD, " ");
-    }
+	/* FIO */
+	if (csr_mcfg & BIT(4)) {
+		if (riscv_get_register(target, &csr_mfiocfg, CSR_MFIOCFG_INFO + GDB_REGNO_CSR0) == ERROR_OK) {
+			command_print_sameline(CMD, "             FIO:");
+			command_print_sameline(CMD, " %#lx", csr_mfiocfg & (~0x3FF));
+			print_size(POWER_FOR_TWO(EXTRACT_FIELD(csr_mfiocfg, 0x1F << 1) - 1) * KB);
+			command_print(CMD, " ");
+		}
+	}
 
-    /* PPI */
-    if (csr_mcfg & BIT(5)) {
-        riscv_get_register(target, &csr_mppicfg, CSR_MPPICFG_INFO + GDB_REGNO_CSR0);
-        command_print_sameline(CMD, "             PPI:");
-        command_print_sameline(CMD, " %#lx", csr_mppicfg & (~0x3FF));
-        print_size(POWER_FOR_TWO(EXTRACT_FIELD(csr_mppicfg, 0xF << 1) - 1) * KB);
-        command_print(CMD, " ");
-    }
+	/* PPI */
+	if (csr_mcfg & BIT(5)) {
+		if (riscv_get_register(target, &csr_mppicfg, CSR_MPPICFG_INFO + GDB_REGNO_CSR0) == ERROR_OK) {
+			command_print_sameline(CMD, "             PPI:");
+			command_print_sameline(CMD, " %#lx", csr_mppicfg & (~0x3FF));
+			print_size(POWER_FOR_TWO(EXTRACT_FIELD(csr_mppicfg, 0x1F << 1) - 1) * KB);
+			command_print(CMD, " ");
+		}
+	}
 
-    command_print(CMD, "----End of cpuinfo");
-    return ERROR_OK;
+	command_print(CMD, "----End of cpuinfo");
+	return ERROR_OK;
 }
 
 uint64_t nuclei_get_dmcustom(struct target *target, uint32_t type, uint32_t hart_id, uint32_t index)
