@@ -237,6 +237,7 @@ typedef struct {
 	 * Custom registers are for non-standard extensions and use abstract register numbers
 	 * from range 0xc000 ... 0xffff. */
 	struct list_head expose_custom;
+	struct list_head expose_nuclei_cpu_core;
 
 	riscv_sample_config_t sample_config;
 	struct riscv_sample_buf sample_buf;

@@ -1678,6 +1678,10 @@ static int examine(struct target *target)
 			if (get_field(s, DM_DMSTATUS_ANYHAVERESET))
 				dmi_write(target, DM_DMCONTROL,
 						set_hartsel(DM_DMCONTROL_DMACTIVE | DM_DMCONTROL_ACKHAVERESET, i));
+			// NOTE: Nuclei added
+			LOG_INFO("coreid=%d, nuclei debug map reg 00: 0x%lx, 16: 0x%lx, 32: 0x%lx", \
+				i, nuclei_get_dmcustom(target, 0, i, 0), nuclei_get_dmcustom(target, 0, i, 16), \
+				nuclei_get_dmcustom(target, 0, i, 32));
 		}
 
 		LOG_DEBUG("Detected %d harts.", dm->hart_count);
