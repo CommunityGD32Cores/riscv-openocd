@@ -1,0 +1,292 @@
+stages:          # List of stages for jobs, and their order of execution
+  - check
+  - build
+  - test
+  - deploy
+
+before_script:
+  #- export
+  - uname -a
+  - free -m
+  - whoami
+
+variables:
+  # don't clean Work/openocd-build
+  GIT_CLEAN_FLAGS: -ffd -e Work/openocd-build/
+
+workflow:
+  rules:
+    # ignore commit with draft/wip/stash
+    - if: $CI_COMMIT_MESSAGE =~ /draft|wip|stash/i
+      when: never
+    # open merge quest and request target branch is nuclei*
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /nuclei/ && $CI_PIPELINE_SOURCE == "merge_request_event"
+    # no open merge request and branch pipeline
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH =~ /nuclei/ || $CI_COMMIT_TAG
+
+check-codestyle:
+  stage: check
+  interruptible: true
+  tags:
+    - env::shell
+    # host::whss1 may build fail for win32 Error: invalid command name "cc-check-inline"
+    - host::whml1
+  script:
+    - echo "Check code style..."
+    - |
+      git diff --patch ${CI_MERGE_REQUEST_DIFF_BASE_SHA} \
+            | filterdiff \
+                -x "a/src/jtag/drivers/libjaylink/*" \
+                -x "a/tools/git2cl/*" \
+                -x "a/.github/*" \
+                -x "a/.gitlab-ci.yml" \
+            | ./tools/scripts/checkpatch.pl --no-signoff -
+
+    - echo "Check complete."
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+build-openocd:
+  stage: build
+  resource_group: build
+  interruptible: true
+  tags:
+    - env::shell
+    - user::xl_ci
+    # host::whss1 may build fail for win32 Error: invalid command name "cc-check-inline"
+    - host::whml1
+  cache:
+    paths:
+      - Work/cache
+  script:
+    - echo "Build And Deploy OpenOCD..."
+    - git config user.name "xl_ci"
+    - git config user.email "xl_ci@nucleisys.com"
+    - if [ ${CI_COMMIT_TAG} ] ; then export toolver=${CI_COMMIT_TAG/nuclei-/} ; else export toolver=$(date +%Y.%m.%d) ; fi
+    - |
+      rm -rf openocd-xpack Nuclei
+      echo "Clone openocd-xpack to build openocd"
+      # use nuclei_xpack branch
+      git clone -b nuclei_xpack git@gito.corp.nucleisys.com:software/devtools/openocd-xpack.git openocd-xpack
+      if [ -f Changelog_Nuclei.md ] ; then
+        echo "Update changelog using Changelog_Nuclei.md to xpack"
+        cp -f Changelog_Nuclei.md openocd-xpack/scripts/README-Changelog.md
+      fi
+      pushd openocd-xpack
+      git submodule update --init --depth 1
+      echo "openocd-xpack is ready, git hash is $(git describe)"
+      echo "Prepare docker images"
+      bash scripts/build.sh preload-images
+      popd
+      if [ -d Work/openocd-build ] ; then
+        ls -l Work/openocd-build
+        echo "Cleanup existing Work/openocd-build to make a clean build environment!"
+        podman run -t -v$(pwd)/Work:/Work docker.io/ilegeul/centos:6-xbb-v2.2 rm -rf /Work/openocd-build
+      fi
+    - |
+      mkdir -p $PWD/Work
+      # If Work/cache is empty, just copy prepared cache files
+      if [ ! "$(ls -A $PWD/Work/cache 2>/dev/null)" ] && [ -d /home/share/devtools/openocd ] ; then
+        mkdir -p $PWD/Work/cache
+        echo "Copy prepared cache files to avoid download with bad network"
+        cp -rf /home/share/devtools/openocd/cache/* $PWD/Work/cache/
+      fi
+      export WORK_FOLDER_PATH=$PWD/Work
+      rm -rf ~/Work
+      ln -s ${WORK_FOLDER_PATH} ~/Work
+      ls -l ~/Work
+      mkdir ~/Work/openocd-build/
+      rm -rf ~/Work/openocd-build/openocd.git
+      echo "Prepare ~/Work/openocd-build/openocd.git to avoid openocd-xpack auto clone"
+      echo "Clone existing openocd repo $PWD to ~/Work/openocd-build/openocd.git"
+      git clone $PWD ~/Work/openocd-build/openocd.git
+      pushd ~/Work/openocd-build/openocd.git
+      # change to use githubfast as github to avoid bad github network issue
+      sed -i 's/github.com/githubfast.com/g' .gitmodules
+      # change git.savannah.nongnu.org/git/git2cl to use repo.or.cz/git2cl.git
+      sed -i 's|git.savannah.nongnu.org/git/git2cl|repo.or.cz/git2cl|g' .gitmodules
+      # change gitlab.zapb.de/libjaylink/libjaylink.git to https://repo.or.cz/libjaylink.git
+      sed -i 's|gitlab.zapb.de/libjaylink|repo.or.cz|g' .gitmodules
+
+      # retry submodule update in max_retries times
+      max_retries=3
+      attempt=1
+      git submodule sync
+      while [ $attempt -le $max_retries ]; do
+          git submodule update --force --recursive --init && break || {
+              echo "Attempt $attempt failed, retrying..."
+              attempt=$((attempt + 1))
+              sleep 1
+          }
+      done
+      if [ $attempt -gt $max_retries ]; then
+          echo "Failed to update submodules after $max_retries attempts."
+          git reset --hard
+          exit 1
+      fi
+      git reset --hard
+      git submodule sync
+      echo "$pwd source code is ready, git commit hash is $(git describe)"
+      popd
+
+    - export RELEASE_VERSION=$toolver
+    - |
+      echo "Build OpenOCD Version $RELEASE_VERSION"
+      pushd openocd-xpack
+      echo ${RELEASE_VERSION} > scripts/VERSION
+      cat scripts/VERSION
+      bash scripts/build.sh preload-images
+      bash scripts/build.sh --all || {
+        popd
+        if [ -d Work/openocd-build/deploy ] ; then
+          ls -lh Work/openocd-build/deploy
+          mv Work/openocd-build/deploy .
+        fi
+        echo "Failed to build OpenOCD, and will cleanup Work/openocd-build folder!"
+        podman run -t -v$(pwd)/Work:/Work docker.io/ilegeul/centos:6-xbb-v2.2 rm -rf /Work/openocd-build
+        exit 1
+      }
+      popd
+      ls -lh Work/openocd-build/deploy
+      repodesc="Work/openocd-build/deploy/gitrepo.txt"
+      echo "Generate $repodesc"
+      echo "openocd repo commit: $(git describe --always --abbrev=10 --dirty)" > ${repodesc}
+      git log --oneline -1 >> ${repodesc}
+      git submodule >> ${repodesc}
+    - |
+      echo "Check openocd version"
+      file ./Work/openocd-build/linux-x64/install/openocd/bin/openocd
+      ldd ./Work/openocd-build/linux-x64/install/openocd/bin/openocd
+      ./Work/openocd-build/linux-x64/install/openocd/bin/openocd --version
+    - |
+      echo "Copy Work/openocd-build/deploy to $PWD"
+      mv Work/openocd-build/deploy .
+    - |
+      echo "Cleanup Work/openocd-build"
+      podman run -t -v$(pwd)/Work:/Work docker.io/ilegeul/centos:6-xbb-v2.2 rm -rf /Work/openocd-build
+    - echo "OpenOCD successfully built."
+
+  artifacts:
+    name: "openocd_build_${CI_COMMIT_TIMESTAMP::10}_${CI_COMMIT_SHA::8}"
+    when: always
+    paths:
+      - deploy
+
+test-openocd:
+  stage: test
+  interruptible: true
+  resource_group: test
+  tags:
+    - env::shell
+    - user::xl_ci
+  dependencies:
+    - build-openocd
+  script:
+    - echo "Running OpenOCD Test..."
+    - |
+      openocd_tgz=$(ls deploy/nuclei-openocd-*-linux-x64.tgz)
+      echo "Untar ${openocd_tgz}"
+      rm -rf Nuclei/
+      tar -xzf ${openocd_tgz}
+      openocd_path=$(realpath $(ls -d Nuclei/openocd/*))
+      echo "Show openocd files"
+      ls -lh ${openocd_path}
+      echo "Check openocd version"
+      ldd ${openocd_path}/bin/openocd
+      ${openocd_path}/bin/openocd --version
+    - echo "Test passed."
+    - rm -rf Nuclei/
+
+deploy-openocd:
+  stage: deploy
+  interruptible: true
+  resource_group: deploy
+  tags:
+    - env::shell
+    - user::xl_ci
+  rules:
+    # manual trigger this deploy job on not merge request pipeline
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: manual
+  dependencies:
+    - build-openocd
+  script:
+    - echo "Will deploy OpenOCD to Shared Environment in 30 seconds, if you just trigger it wrong, please cancel this job"
+    - sleep 30
+    - |
+      openocd_tgz=$(ls deploy/nuclei-openocd-*-linux-x64.tgz)
+      echo "Untar ${openocd_tgz}"
+      rm -rf Nuclei/
+      tar -xzf ${openocd_tgz}
+      ls -l Nuclei/openocd
+      openocd_path=$(ls -d Nuclei/openocd/*)
+      openocd_ver=$(basename ${openocd_path})
+      shareloc="/home/share/devtools/openocd/linux64"
+      echo "Sleep 30 seconds, if you don't want to sync this built openocd to share enviroment $shareloc/${openocd_ver}, just cancel this job"
+      sleep 30
+      if [ -d $shareloc/${openocd_ver} ] ; then
+        echo "Remove existing $shareloc/${openocd_ver}"
+        rm -rf $shareloc/${openocd_ver}
+      fi
+      echo "Move ${openocd_path} to $shareloc/"
+      mv ${openocd_path} $shareloc/
+      rm -rf Nuclei/
+      echo "Check ${openocd_ver} OpenOCD Version"
+      $shareloc/${openocd_ver}/bin/openocd -v
+      echo ${openocd_ver} > VERSION
+      openocd_deploy_zip="openocd_deploy_${openocd_ver}.zip"
+      rm -f ${openocd_deploy_zip}
+      echo "Zip deploy/ to ${openocd_deploy_zip}"
+      zip -r ${openocd_deploy_zip} deploy/
+      shareloc="/home/share/devtools/openocd/deploy"
+      mkdir -p $shareloc
+      echo "Install ${openocd_deploy_zip} to ${shareloc}/"
+      cp -f ${openocd_deploy_zip} $shareloc/
+      ls -lht ${shareloc}/
+      rm -rf deploy
+    - shareloc="/home/share/devtools/openocd/linux64"
+    - echo "OpenOCD successfully deployed to share environment $shareloc/${openocd_ver}"
+  artifacts:
+    name: "openocd_deploy_${CI_COMMIT_TIMESTAMP::10}_${CI_COMMIT_SHA::8}"
+    when: always
+    paths:
+      - VERSION
+      - openocd_deploy_*.zip
+
+link-openocd:
+  stage: deploy
+  interruptible: true
+  resource_group: deploy
+  tags:
+    - env::shell
+    - user::xl_ci
+  rules:
+    # manual trigger this deploy job on not merge request pipeline
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: manual
+  # link-openocd job require deploy-openocd job executed before
+  needs:
+      - job: deploy-openocd
+        artifacts: true
+  script:
+    - openocd_ver=$(cat VERSION)
+    - rm -f VERSION
+    - shareloc="/home/share/devtools/openocd/linux64"
+    - echo "Will link openocd latest to ${openocd_ver} in $shareloc in 30 seconds, if you just trigger it wrong, please cancel this job"
+    - sleep 30
+    - |
+      echo "Show last latest openocd linked to, and wait to confirm latest will link to ${openocd_ver} now"
+      ls -l $shareloc/latest
+      echo "Check last latest OpenOCD Version"
+      $shareloc/latest/bin/openocd -v
+      sleep 30
+      rm -f $shareloc/latest
+      pushd $shareloc
+      echo "Do symbolic link ${openocd_ver} -> latest"
+      ln -s ${openocd_ver} latest
+      popd
+      echo "Check Latest OpenOCD Version"
+      $shareloc/latest/bin/openocd -v
+    - echo "OpenOCD successfully link ${openocd_ver} to latest in $shareloc"
