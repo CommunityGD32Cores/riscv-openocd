@@ -6,6 +6,13 @@ If the tool version and documentation version not match, please take care.
 
 **Below is the changelog for Nuclei OpenOCD.**
 
+## 2024.06
+
+* Add and update nuclei custom CSR
+* Fix `nuclei cpuinfo` command implementation
+* Add debug map feature for Nuclei CPU with new `nuclei expose_cpu_core` and `nuclei examine_cpu_core` commands
+* changes are based on [riscv/riscv-openocd](https://github.com/riscv/riscv-openocd/commit/52177592)
+
 ## 2024.02
 
 > **Still in development, not official release.**
