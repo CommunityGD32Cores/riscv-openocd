@@ -12,6 +12,7 @@ If the tool version and documentation version not match, please take care.
 * Fix `nuclei cpuinfo` command implementation
 * Add debug map feature for Nuclei CPU with new `nuclei expose_cpu_core` and `nuclei examine_cpu_core` commands
 * changes are based on [riscv/riscv-openocd](https://github.com/riscv/riscv-openocd/commit/52177592)
+* Fix hbird/hbirdv2 flash programming, and re-route fespi to nuspi flash loader for hbird/hbirdv2 processor
 
 ## 2024.02
 
