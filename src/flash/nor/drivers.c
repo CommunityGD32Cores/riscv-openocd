@@ -19,6 +19,7 @@
 #include "config.h"
 #endif
 #include "imp.h"
+#include <string.h>
 
 extern const struct flash_driver aduc702x_flash;
 extern const struct flash_driver aducm360_flash;
@@ -179,8 +180,14 @@ static const struct flash_driver * const flash_drivers[] = {
 
 const struct flash_driver *flash_driver_find_by_name(const char *name)
 {
+	char *flash_name = name;
+	if (strcmp(flash_name, "fespi") == 0) {
+		/* Nuclei added: redirect fespi for old hbird/hbirdv2 SPI driver to nuspi driver */
+		flash_name = "nuspi";
+	}
+
 	for (unsigned i = 0; flash_drivers[i]; i++) {
-		if (strcmp(name, flash_drivers[i]->name) == 0)
+		if (strcmp(flash_name, flash_drivers[i]->name) == 0)
 			return flash_drivers[i];
 	}
 	return NULL;
