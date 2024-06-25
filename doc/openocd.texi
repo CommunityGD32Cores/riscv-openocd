@@ -11451,7 +11451,7 @@ flash bank $FLASHNAME custom 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
 flash bank $FLASHNAME custom 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
 /home/admin/flashloader.bin simulation sectorsize=0x1000
 
-flash bank $FLASHNAME nuspi 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
+flash bank $FLASHNAME custom 0x20000000 0 0 0 $TARGETNAME 0x10180000 \
 /home/admin/flashloader.bin sectorsize=0x1000 simulation
 @end example
 
