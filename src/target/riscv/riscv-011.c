@@ -1889,8 +1889,8 @@ static int handle_halt(struct target *target, bool announce)
 	/* This is logged to the user so that gdb will show it when a user types
 	 * 'monitor reset init'. At that time gdb appears to have the pc cached
 	 * still so if a user manually inspects the pc it will still have the old
-	 * value. */
-	LOG_USER("halted at 0x%" PRIx64 " due to %s", info->dpc, cause_string[cause]);
+	 * value. FIXME changed to LOG_DEBUG due to step will output a lot of message */
+	LOG_DEBUG("halted at 0x%" PRIx64 " due to %s", info->dpc, cause_string[cause]);
 
 	return ERROR_OK;
 }
