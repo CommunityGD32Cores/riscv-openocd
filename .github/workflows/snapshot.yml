@@ -2,7 +2,13 @@
 
 # Copyright (C) 2020 by Tarek BOUCHKATI <tarek.bouchkati@gmail.com>
 
-on: pull_request
+on:
+  pull_request:
+    branches:
+      - 'nuclei/*'
+  push:
+    branches:
+      - 'nuclei/*'
 
 name: OpenOCD Snapshot
 
